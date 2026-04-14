@@ -1,0 +1,46 @@
+{
+  "title": "It's about Time \u2014 Cerf's Up, Communications of the ACM, April 2026",
+  "total_simulation_rows": 1590,
+  "n_scenarios": 5,
+  "ntp_wraparound_year": 2036.0993,
+  "unix_wraparound_year": 2038.0497,
+  "ntp_overflow_error_seconds": 4294967296.0,
+  "unix_overflow_error_seconds": 4294967295.0,
+  "scenarios": {
+    "no_patch_legacy_only": {
+      "patch_rate_per_year": 0.0,
+      "initial_legacy_fraction": 1.0,
+      "max_time_error_ntp_sec": 4294967295.0,
+      "max_time_error_unix_sec": 4294967295.0,
+      "legacy_frac_at_end_2050": 1.0
+    },
+    "slow_patch_baseline": {
+      "patch_rate_per_year": 0.05,
+      "initial_legacy_fraction": 0.4,
+      "max_time_error_ntp_sec": 4294967295.0,
+      "max_time_error_unix_sec": 4294967295.0,
+      "legacy_frac_at_end_2050": 0.108811
+    },
+    "aggressive_patch_campaign": {
+      "patch_rate_per_year": 0.2,
+      "initial_legacy_fraction": 0.4,
+      "max_time_error_ntp_sec": 4294967295.0,
+      "max_time_error_unix_sec": 4294967295.0,
+      "legacy_frac_at_end_2050": 0.00219
+    },
+    "ntp_era_aware_systems": {
+      "patch_rate_per_year": 0.05,
+      "initial_legacy_fraction": 0.4,
+      "max_time_error_ntp_sec": 4294967295.0,
+      "max_time_error_unix_sec": 4294967295.0,
+      "legacy_frac_at_end_2050": 0.108811
+    },
+    "high_legacy_slow_patch": {
+      "patch_rate_per_year": 0.02,
+      "initial_legacy_fraction": 0.7,
+      "max_time_error_ntp_sec": 4294967295.0,
+      "max_time_error_unix_sec": 4294967295.0,
+      "legacy_frac_at_end_2050": 0.415857
+    }
+  }
+}
