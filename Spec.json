@@ -1,0 +1,540 @@
+{
+  "titles": [
+    "It's about Time \u2014 Cerf's Up, Communications of the ACM, April 2026"
+  ],
+  "domain_summary": "This paper discusses integer overflow hazards in legacy timestamp representations, specifically the NTP 32-bit seconds wrap-around (February 6, 2036) and the UNIX 32-bit signed integer epoch overflow (January 19, 2038), and their potential impact on embedded, IoT, and legacy systems.",
+  "recommended_backend": "event_process",
+  "rationale": "The core phenomena are discrete overflow events triggered when a counter variable crosses a fixed threshold and wraps around to an erroneous value. An event-process backend is ideal because the dynamics are driven by counter accumulation over time with instantaneous state-change events at overflow boundaries, not continuous differential equations. The simulator must track multiple independent counters, detect wrap-around crossings, and log the resulting time-interpretation errors.",
+  "state_variables": [
+    {
+      "name": "ntp_seconds_counter",
+      "description": "32-bit unsigned integer counting seconds since Jan 1, 1900, used in NTP timestamps",
+      "unit": "seconds",
+      "init_value": 0.0,
+      "range": [
+        0.0,
+        4294967295.0
+      ]
+    },
+    {
+      "name": "unix_signed_counter",
+      "description": "32-bit signed integer counting seconds since Jan 1, 1970 (UNIX epoch)",
+      "unit": "seconds",
+      "init_value": 0.0,
+      "range": [
+        -2147483648.0,
+        2147483647.0
+      ]
+    },
+    {
+      "name": "unix_64bit_counter",
+      "description": "64-bit signed integer counting seconds since Jan 1, 1970, upgraded modern systems",
+      "unit": "seconds",
+      "init_value": 0.0,
+      "range": [
+        0.0,
+        9.223372036854776e+18
+      ]
+    },
+    {
+      "name": "ntp_era",
+      "description": "NTPv4 era number, incremented each time the 32-bit counter wraps around",
+      "unit": "a.u.",
+      "init_value": 0.0,
+      "range": [
+        0.0,
+        1000.0
+      ]
+    },
+    {
+      "name": "interpreted_unix_year",
+      "description": "Calendar year inferred from the 32-bit signed UNIX counter, goes wrong after overflow",
+      "unit": "year",
+      "init_value": 1970.0,
+      "range": [
+        1901.0,
+        2106.0
+      ]
+    },
+    {
+      "name": "interpreted_ntp_year",
+      "description": "Calendar year inferred from the 32-bit NTP counter without era correction",
+      "unit": "year",
+      "init_value": 1900.0,
+      "range": [
+        1900.0,
+        2106.0
+      ]
+    },
+    {
+      "name": "overflow_event_flag",
+      "description": "Binary flag: 1 when an overflow/wrap-around event has occurred in the current timestep",
+      "unit": "a.u.",
+      "init_value": 0.0,
+      "range": [
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "time_error_seconds",
+      "description": "Absolute difference in seconds between the true current time and the misinterpreted timestamp after overflow",
+      "unit": "seconds",
+      "init_value": 0.0,
+      "range": [
+        0.0,
+        4294967295.0
+      ]
+    },
+    {
+      "name": "legacy_device_fraction_affected",
+      "description": "Fraction of legacy/IoT devices that have NOT been patched to 64-bit time representation",
+      "unit": "fraction",
+      "init_value": 1.0,
+      "range": [
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "simulation_year",
+      "description": "Current simulated calendar year in the simulator timeline",
+      "unit": "year",
+      "init_value": 1970.0,
+      "range": [
+        1970.0,
+        2100.0
+      ]
+    }
+  ],
+  "parameters": [
+    {
+      "name": "ntp_max_counter",
+      "value": 4294967295.0,
+      "unit": "seconds",
+      "source": "extracted",
+      "description": "Maximum value of 32-bit unsigned NTP seconds counter (2^32 - 1)"
+    },
+    {
+      "name": "ntp_epoch_year",
+      "value": 1900.0,
+      "unit": "year",
+      "source": "extracted",
+      "description": "NTP epoch start year: January 1, 1900"
+    },
+    {
+      "name": "ntp_wraparound_year",
+      "value": 2036.1,
+      "unit": "year",
+      "source": "extracted",
+      "description": "Calendar year of NTP 32-bit overflow: February 6, 2036"
+    },
+    {
+      "name": "ntp_wraparound_seconds_from_epoch",
+      "value": 4294967296.0,
+      "unit": "seconds",
+      "source": "extracted",
+      "description": "Seconds from Jan 1 1900 at which NTP 32-bit counter wraps: 136 years 4 days 6 hours 28 minutes 16 seconds"
+    },
+    {
+      "name": "unix_max_counter",
+      "value": 2147483647.0,
+      "unit": "seconds",
+      "source": "extracted",
+      "description": "Maximum value of 32-bit signed UNIX integer (2^31 - 1)"
+    },
+    {
+      "name": "unix_epoch_year",
+      "value": 1970.0,
+      "unit": "year",
+      "source": "extracted",
+      "description": "UNIX epoch start year: January 1, 1970"
+    },
+    {
+      "name": "unix_wraparound_year",
+      "value": 2038.05,
+      "unit": "year",
+      "source": "extracted",
+      "description": "Calendar year of UNIX 32-bit signed overflow: January 19, 2038, 03:14:07 UTC"
+    },
+    {
+      "name": "unix_wraparound_seconds_from_epoch",
+      "value": 2147483647.0,
+      "unit": "seconds",
+      "source": "extracted",
+      "description": "Seconds from Jan 1 1970 at which UNIX 32-bit counter hits max positive value"
+    },
+    {
+      "name": "unix_post_overflow_interpreted_year",
+      "value": 1901.89,
+      "unit": "year",
+      "source": "extracted",
+      "description": "Year that post-overflow UNIX counter is misinterpreted as: Dec 13, 1901 (approx 1901.95)"
+    },
+    {
+      "name": "ntp_post_overflow_interpreted_year",
+      "value": 1900.0,
+      "unit": "year",
+      "source": "extracted",
+      "description": "Year that post-overflow NTP counter is misinterpreted as without era correction: Jan 1, 1900"
+    },
+    {
+      "name": "unix_64bit_max_years",
+      "value": 292000000000.0,
+      "unit": "years",
+      "source": "extracted",
+      "description": "Duration before 64-bit UNIX counter overflows: approximately 292 billion years"
+    },
+    {
+      "name": "patch_rate_per_year",
+      "value": 0.05,
+      "unit": "fraction/year",
+      "source": "assumed",
+      "description": "Annual fraction of legacy/IoT devices upgraded from 32-bit to 64-bit time representation"
+    },
+    {
+      "name": "initial_legacy_fraction",
+      "value": 0.4,
+      "unit": "fraction",
+      "source": "assumed",
+      "description": "Fraction of deployed embedded/IoT systems still using 32-bit time at simulation start (year 2024)"
+    },
+    {
+      "name": "seconds_per_year",
+      "value": 31557600.0,
+      "unit": "seconds/year",
+      "source": "extracted",
+      "description": "Approximate seconds per Julian year (365.25 days)"
+    },
+    {
+      "name": "simulation_start_year",
+      "value": 2024.0,
+      "unit": "year",
+      "source": "assumed",
+      "description": "Start of the simulation timeline"
+    },
+    {
+      "name": "simulation_end_year",
+      "value": 2050.0,
+      "unit": "year",
+      "source": "assumed",
+      "description": "End of the simulation timeline to cover both overflow events with margin"
+    },
+    {
+      "name": "time_step_days",
+      "value": 30.0,
+      "unit": "days",
+      "source": "assumed",
+      "description": "Simulation time step in days (monthly resolution)"
+    }
+  ],
+  "scenario_plan": [
+    {
+      "label": "no_patch_legacy_only",
+      "description": "All legacy 32-bit systems remain unpatched through 2050. Both NTP and UNIX overflows occur and misinterpretation errors are maximal. Represents worst-case IoT/embedded scenario.",
+      "param_overrides": {
+        "patch_rate_per_year": 0.0,
+        "initial_legacy_fraction": 1.0
+      }
+    },
+    {
+      "label": "slow_patch_baseline",
+      "description": "Realistic baseline: 5% annual patch rate starting in 2024, representing gradual enterprise and IoT upgrade cycle. Some devices still vulnerable at both 2036 and 2038 events.",
+      "param_overrides": {
+        "patch_rate_per_year": 0.05,
+        "initial_legacy_fraction": 0.4
+      }
+    },
+    {
+      "label": "aggressive_patch_campaign",
+      "description": "Aggressive patching campaign achieves 20% annual remediation rate, representing a coordinated industry response analogous to Y2K remediation efforts.",
+      "param_overrides": {
+        "patch_rate_per_year": 0.2,
+        "initial_legacy_fraction": 0.4
+      }
+    },
+    {
+      "label": "ntp_era_aware_systems",
+      "description": "Systems implement NTPv4 era awareness so the NTP 2036 overflow is handled gracefully, but UNIX 32-bit overflow remains unaddressed. Only the 2038 event causes misinterpretation.",
+      "param_overrides": {
+        "patch_rate_per_year": 0.05,
+        "initial_legacy_fraction": 0.4
+      }
+    },
+    {
+      "label": "high_legacy_slow_patch",
+      "description": "High legacy device concentration (70%) with very slow patch rate (2%), representing developing-region IoT deployments or long-lifecycle medical/industrial devices.",
+      "param_overrides": {
+        "patch_rate_per_year": 0.02,
+        "initial_legacy_fraction": 0.7
+      }
+    }
+  ],
+  "figure_plan": [
+    {
+      "id": "fig1",
+      "type": "line",
+      "x_axis": "simulation_year",
+      "y_axis": "ntp_seconds_counter",
+      "title": "NTP 32-bit Counter Accumulation and Wrap-Around (1900\u20132040)",
+      "inspired_by": "The NTP 32-bit seconds counter wraps around after 136 years on Feb 6, 2036, resetting interpretation to Jan 1, 1900",
+      "description": "This figure shows the NTP 32-bit unsigned integer counter value accumulating from zero (Jan 1, 1900) as a function of calendar year, reaching its maximum of 4,294,967,295 near February 2036 and then abruptly wrapping back to zero. The y-axis shows the raw counter value (0 to ~4.3 billion) and the x-axis shows calendar year. The reader should look for the sharp discontinuity at 2036 where the counter resets, and contrast this with a second line showing the equivalent 64-bit counter that continues smoothly without any visible wrap-around in this time range."
+    },
+    {
+      "id": "fig2",
+      "type": "line",
+      "x_axis": "simulation_year",
+      "y_axis": "unix_signed_counter",
+      "title": "UNIX 32-bit Signed Counter and Year 2038 Overflow",
+      "inspired_by": "UNIX 32-bit signed integer hits maximum positive value at 03:14:07 UTC on Jan 19, 2038, then goes negative",
+      "description": "This figure plots the UNIX 32-bit signed integer counter value from the UNIX epoch (1970) through 2050, showing it rising smoothly to its maximum of 2,147,483,647 in January 2038 and then flipping to large negative values (around -2,147,483,648) due to signed integer overflow. The x-axis is calendar year and the y-axis is the raw counter value. Two series are plotted: the broken 32-bit counter showing the catastrophic sign flip, and the well-behaved 64-bit counter for comparison. The visual impact of the sign reversal should be stark \u2014 a vertical drop from +2.1 billion to -2.1 billion."
+    },
+    {
+      "id": "fig3",
+      "type": "line",
+      "x_axis": "simulation_year",
+      "y_axis": "interpreted_unix_year",
+      "title": "Misinterpreted Calendar Year After UNIX 2038 Overflow",
+      "inspired_by": "After the 2038 overflow the system will think it is 08:45 pm on Dec 13, 1901",
+      "description": "This figure translates the raw counter value into the calendar year that a naive 32-bit UNIX system would report, from 1970 through 2050. Before overflow (pre-2038), the interpreted year matches the true year perfectly along the diagonal. After overflow in 2038, the 32-bit system suddenly reports a date in December 1901, creating a ~136-year retrospective error visible as a sudden plunge to the bottom of the y-axis. A horizontal dashed reference line marks 1901.95 (December 13, 1901). The magnitude of the time interpretation error \u2014 approximately 136 years \u2014 is the key takeaway."
+    },
+    {
+      "id": "fig4",
+      "type": "line",
+      "x_axis": "simulation_year",
+      "y_axis": "time_error_seconds",
+      "title": "Time Interpretation Error (seconds) for 32-bit Systems Post-Overflow",
+      "inspired_by": "Both NTP and UNIX overflows create large systematic time errors in legacy systems",
+      "description": "This figure shows the absolute time interpretation error in seconds introduced by overflow, plotted against simulation year for both the NTP 2036 event and the UNIX 2038 event. Error is zero before each overflow event and jumps to a large fixed value immediately after (approximately 4.29 billion seconds for NTP reset to 1900, and approximately 4.29 billion seconds for UNIX rollback to 1901). Both overflow events appear as vertical step-function jumps, with a vertical dashed line marking each event year (2036 and 2038). The figure illustrates that without correction, the error persists indefinitely after the overflow."
+    },
+    {
+      "id": "fig5",
+      "type": "line",
+      "x_axis": "simulation_year",
+      "y_axis": "legacy_device_fraction_affected",
+      "title": "Fraction of Unpatched Legacy/IoT Devices Under Different Patch Scenarios",
+      "inspired_by": "Legacy IoT, medical, and embedded devices not subject to regular updates remain at risk; analogy to Y2K remediation",
+      "description": "This figure shows the fraction of deployed embedded and IoT devices still running 32-bit time representations (and therefore vulnerable to the 2036/2038 overflow events) as a function of calendar year, for all five scenarios. Each scenario is a separate colored line showing exponential decay of the unpatched fraction at different rates. Vertical dashed lines mark 2036 and 2038 to show what fraction of devices remain vulnerable at each overflow event. The reader can compare how aggressive patching (20%/year) achieves near-zero vulnerability before 2036, while slow or no-patch scenarios still have substantial exposed device populations at both dates."
+    },
+    {
+      "id": "fig6",
+      "type": "scatter",
+      "x_axis": "simulation_year",
+      "y_axis": "overflow_event_flag",
+      "title": "Overflow Event Timeline: NTP 2036 and UNIX 2038",
+      "inspired_by": "Two distinct overflow events: NTP on Feb 6 2036 and UNIX at 03:14:07 UTC Jan 19 2038",
+      "description": "This event timeline scatter plot marks the two critical overflow events as vertical markers on a year axis, with the overflow event flag (0 or 1) on the y-axis. NTP overflow at ~2036.1 and UNIX overflow at ~2038.05 are shown as tall vertical bars or large scatter points. Annotations label each event with the exact date, the type of counter that overflows, and the misinterpreted date the system would report. This figure serves as a compact reference card summarizing both critical dates, analogous to the direct statements in Cerf's essay."
+    },
+    {
+      "id": "fig7",
+      "type": "heatmap",
+      "x_axis": "simulation_year",
+      "y_axis": "patch_rate_per_year",
+      "title": "Vulnerability Heatmap: Legacy Device Exposure at 2036 and 2038 Events",
+      "inspired_by": "Devices not normally subject to regular software updates including IoT, medical, embedded sensors remain at risk",
+      "description": "This heatmap plots the fraction of devices still unpatched at the time of each overflow event (color intensity) as a function of initial legacy fraction (rows) and annual patch rate (columns). High initial legacy fraction combined with low patch rate (top-left) gives deep red indicating maximum exposure; low initial fraction with high patch rate (bottom-right) gives deep blue indicating near-zero exposure. The figure allows planners to read off at a glance what combination of initial conditions and remediation speed is needed to reduce vulnerability below a target threshold (e.g., 10%) before 2036 and 2038."
+    },
+    {
+      "id": "fig8",
+      "type": "line",
+      "x_axis": "simulation_year",
+      "y_axis": "ntp_era",
+      "title": "NTP Era Number vs Calendar Year (Era-Aware vs Legacy Systems)",
+      "inspired_by": "NTPv4 uses the concept of eras to deal with the 32-bit wrap-around; older systems may not implement era awareness",
+      "description": "This figure shows the NTPv4 era counter as a step function of calendar year, incrementing by 1 each time the 32-bit NTP counter wraps around (first wrap at ~2036, second wrap at ~2172, etc.). Era-aware systems correctly track the era and maintain monotonically increasing time. The figure plots two lines: one for era-aware NTPv4 systems (era increments at 2036) and one for legacy systems (era always stays at 0, leading to the 136-year misinterpretation). The step at 2036 is annotated to explain that era-aware systems remain correct while legacy systems diverge."
+    }
+  ],
+  "dataset_schema": [
+    "simulation_year",
+    "scenario_label",
+    "ntp_seconds_counter",
+    "unix_signed_counter",
+    "unix_64bit_counter",
+    "ntp_era",
+    "interpreted_ntp_year",
+    "interpreted_unix_year",
+    "interpreted_unix_year_64bit",
+    "overflow_event_flag",
+    "ntp_overflow_occurred",
+    "unix_overflow_occurred",
+    "time_error_ntp_seconds",
+    "time_error_unix_seconds",
+    "legacy_device_fraction_affected",
+    "patch_rate_per_year",
+    "initial_legacy_fraction",
+    "true_seconds_since_ntp_epoch",
+    "true_seconds_since_unix_epoch"
+  ],
+  "simulator_logic": "\n# ============================================================\n# CORE SIMULATOR LOGIC \u2014 Integer Timestamp Overflow Simulator\n# ============================================================\n\n# CONSTANTS (from paper)\nNTP_EPOCH_YEAR     = 1900.0\nUNIX_EPOCH_YEAR    = 1970.0\nSECONDS_PER_YEAR   = 31557600.0       # Julian year = 365.25 days\nNTP_MAX_U32        = 2**32            # 4294967296 (wraps to 0)\nUNIX_MAX_S32       = 2**31 - 1        # 2147483647 (max positive signed)\nUNIX_MIN_S32       = -(2**31)         # -2147483648 (post-overflow value)\nNTP_WRAPAROUND_YEAR  = 1900.0 + (NTP_MAX_U32 / SECONDS_PER_YEAR)   # \u22482036.09\nUNIX_WRAPAROUND_YEAR = 1970.0 + (UNIX_MAX_S32 / SECONDS_PER_YEAR)  # \u22482038.04\n\n# TIME GRID\nyears = np.arange(sim_start_year, sim_end_year + time_step_days/365.25,\n                  time_step_days / 365.25)\n\nfor each scenario in scenarios:\n    patch_rate       = scenario['patch_rate_per_year']\n    init_legacy_frac = scenario['initial_legacy_fraction']\n    ntp_era_aware    = scenario.get('ntp_era_aware', False)\n\n    ntp_overflow_occurred  = False\n    unix_overflow_occurred = False\n    ntp_era_count          = 0\n\n    legacy_frac = init_legacy_frac  # start at simulation_start_year = 2024\n\n    for year in years:\n\n        # \u2500\u2500 TRUE elapsed seconds \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n        true_sec_ntp  = (year - NTP_EPOCH_YEAR)  * SECONDS_PER_YEAR\n        true_sec_unix = (year - UNIX_EPOCH_YEAR) * SECONDS_PER_YEAR\n\n        # \u2500\u2500 NTP 32-bit UNSIGNED counter \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n        ntp_raw = true_sec_ntp % NTP_MAX_U32        # modular wrap-around\n        if (not ntp_overflow_occurred) and (year >= NTP_WRAPAROUND_YEAR):\n            ntp_overflow_occurred = True\n            if not ntp_era_aware:\n                ntp_era_count = 0    # legacy: era never increments\n            else:\n                ntp_era_count += 1  # NTPv4 era-aware: increment era\n\n        # Legacy interpretation (no era correction):\n        interpreted_ntp_year = NTP_EPOCH_YEAR + (ntp_raw / SECONDS_PER_YEAR)\n\n        # \u2500\u2500 UNIX 32-bit SIGNED counter \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n        if true_sec_unix <= UNIX_MAX_S32:\n            unix_s32_raw = int(true_sec_unix)       # normal range\n            unix_overflow_now = False\n        else:\n            # Overflow: signed integer wraps to large negative\n            # Compute wrapped value: (true_sec_unix - UNIX_MAX_S32 - 1) maps to\n            # UNIX_MIN_S32, i.e., subtract 2^32 from the true value\n            unix_s32_raw = int(true_sec_unix) - 2**32\n            unix_overflow_now = True\n            if not unix_overflow_occurred:\n                unix_overflow_occurred = True\n\n        # Naive interpretation of signed 32-bit counter:\n        interpreted_unix_year = UNIX_EPOCH_YEAR + (unix_s32_raw / SECONDS_PER_YEAR)\n\n        # 64-bit counter: no overflow possible in simulation window\n        unix_64bit_raw = int(true_sec_unix)\n        interpreted_unix_year_64bit = UNIX_EPOCH_YEAR + (unix_64bit_raw / SECONDS_PER_YEAR)\n\n        # \u2500\u2500 TIME ERRORS \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n        # Error = |true_year - interpreted_year| converted to seconds\n        time_error_ntp  = abs(year - interpreted_ntp_year)  * SECONDS_PER_YEAR  if ntp_overflow_occurred  else 0.0\n        time_error_unix = abs(year - interpreted_unix_year) * SECONDS_PER_YEAR  if unix_overflow_occurred else 0.0\n\n        # \u2500\u2500 OVERFLOW EVENT FLAG \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n        overflow_event_flag = 1 if (unix_overflow_now or\n                                    (year >= NTP_WRAPAROUND_YEAR and\n                                     year < NTP_WRAPAROUND_YEAR + time_step_days/365.25))\n                                else 0\n\n        # \u2500\u2500 LEGACY DEVICE FRACTION (exponential decay from patch rate) \u2500\u2500\u2500\u2500\n        # Only decay from year >= simulation_start_year (2024)\n        years_since_sim_start = max(0.0, year - simulation_start_year)\n        legacy_frac = init_legacy_frac * np.exp(-patch_rate * years_since_sim_start)\n\n        # \u2500\u2500 RECORD ROW \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n        record = {\n            'simulation_year':             year,\n            'scenario_label':              scenario['label'],\n            'ntp_seconds_counter':         ntp_raw,\n            'unix_signed_counter':         unix_s32_raw,\n            'unix_64bit_counter':          unix_64bit_raw,\n            'ntp_era':                     ntp_era_count,\n            'interpreted_ntp_year':        interpreted_ntp_year,\n            'interpreted_unix_year':       interpreted_unix_year,\n            'interpreted_unix_year_64bit': interpreted_unix_year_64bit,\n            'overflow_event_flag':         overflow_event_flag,\n            'ntp_overflow_occurred':       int(ntp_overflow_occurred),\n            'unix_overflow_occurred':      int(unix_overflow_occurred),\n            'time_error_ntp_seconds':      time_error_ntp,\n            'time_error_unix_seconds':     time_error_unix,\n            'legacy_device_fraction_affected': legacy_frac,\n            'patch_rate_per_year':         patch_rate,\n            'initial_legacy_fraction':     init_legacy_frac,\n            'true_seconds_since_ntp_epoch':  true_sec_ntp,\n            'true_seconds_since_unix_epoch': true_sec_unix\n        }\n        append record to output_rows\n\n# HEATMAP DATA (fig7): sweep over grid of (init_legacy_frac, patch_rate)\nfor init_frac in np.linspace(0.1, 1.0, 10):\n    for p_rate in np.linspace(0.01, 0.25, 10):\n        frac_at_2036 = init_frac * exp(-p_rate * (2036.09 - 2024))\n        frac_at_2038 = init_frac * exp(-p_rate * (2038.04 - 2024))\n        save (init_frac, p_rate, frac_at_2036, frac_at_2038) to heatmap_data\n\n# FIGURES: use matplotlib to produce all 8 figures with proper annotations,\n# dashed vertical lines at 2036.09 and 2038.04, dual-axis where needed,\n# legend labels matching scenario names, and saved as high-DPI PNGs.\n",
+  "keywords": [
+    "integer overflow",
+    "timestamp wraparound",
+    "Year 2038 problem",
+    "NTP epoch",
+    "legacy embedded systems"
+  ],
+  "categories": [
+    "Security",
+    "IoT",
+    "Standards Research Data",
+    "Signal Processing",
+    "Other"
+  ],
+  "abstract": "This simulator models the integer overflow dynamics of two critical legacy timestamp representations: the NTP 32-bit unsigned second counter (wrap-around February 6, 2036) and the UNIX 32-bit signed epoch counter (overflow January 19, 2038, 03:14:07 UTC), as described in Vinton Cerf's 2026 essay. It reproduces the time-interpretation errors that arise when these counters exceed their maximum values and quantifies the fraction of unpatched legacy, IoT, and embedded devices exposed at each event under a range of patch-rate scenarios. The simulator generates synthetic counter trajectories, misinterpretation errors in both seconds and calendar years, and device vulnerability curves that mirror the qualitative arguments and numerical details presented in the paper. Researchers, engineers, and policymakers can use the output CSV data and figures to visualize the urgency of remediation, compare patching strategies, and communicate the risk to non-technical stakeholders.",
+  "value_proposition": {
+    "target_audiences": [
+      "Embedded systems and IoT engineers responsible for long-lifecycle device firmware",
+      "Security researchers and policy analysts assessing Y2K-analogous infrastructure risks",
+      "Computer science educators teaching integer representation, overflow, and systems reliability"
+    ],
+    "use_cases": [
+      "An IoT platform team can use the vulnerability heatmap figure (fig7) to determine the minimum annual patch deployment rate needed to reduce exposed device fraction below 5% before the 2036 NTP overflow, informing their release schedule and end-of-life planning.",
+      "A university instructor can use the misinterpreted-year plots (fig3) and counter wrap-around figures (fig1, fig2) as interactive visual demonstrations of signed vs. unsigned integer overflow without requiring students to run real NTP or UNIX clocks.",
+      "A standards body or industry consortium can use the scenario comparison curves (fig5) to argue for a coordinated patching campaign analogous to Y2K, backed by quantitative projections of residual device exposure under different industry response rates."
+    ],
+    "summary": "This simulator bundle makes the abstract numerical arguments in Cerf's essay concrete and actionable. While the original essay describes the two overflow events in prose, the simulator produces time-series plots, event markers, and device-vulnerability heatmaps that allow engineers and policymakers to see exactly how large the misinterpretation errors are (on the order of 136 years, or ~4.3 billion seconds), when they occur, and how many devices remain at risk under different remediation strategies. The synthetic CSV data can be ingested into dashboards or compliance reporting tools, and the publication-quality figures are suitable for use in presentations, standards documents, and educational materials. Unlike reading the paper alone, the simulator allows users to interactively test their own patch-rate assumptions and initial legacy-device concentrations, providing a quantitative decision-support tool that the essay itself does not offer."
+  },
+  "data_format": [
+    "CSV",
+    "PNG",
+    "JSON"
+  ],
+  "scene_3d_plan": {
+    "physical_objects": [
+      {
+        "name": "ntp_counter_cylinder",
+        "geometry": "cylinder",
+        "description": "Represents the NTP 32-bit unsigned counter as a filling cylinder. Height and fill level correspond to the current counter value (0 to 2^32-1). When the cylinder overflows at 2036, the fill resets to the bottom with a flash effect, symbolizing the wrap-around back to 1900.",
+        "position": [
+          -3,
+          0,
+          0
+        ],
+        "animated_by": "ntp_seconds_counter",
+        "animation_type": "scale"
+      },
+      {
+        "name": "unix_counter_cylinder",
+        "geometry": "cylinder",
+        "description": "Represents the UNIX 32-bit signed counter as a filling cylinder that changes color from green (positive values, 1970\u20132038) to red (negative values, post-overflow). At the 2038 overflow event, the cylinder visibly inverts, indicating the sign flip.",
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "animated_by": "unix_signed_counter",
+        "animation_type": "color"
+      },
+      {
+        "name": "unix_64bit_counter_cylinder",
+        "geometry": "cylinder",
+        "description": "Represents the modern 64-bit UNIX counter as a tall steady cylinder that remains blue and continues filling smoothly through 2036 and 2038 without any disruption, providing visual contrast to the 32-bit failures.",
+        "position": [
+          3,
+          0,
+          0
+        ],
+        "animated_by": "unix_64bit_counter",
+        "animation_type": "scale"
+      },
+      {
+        "name": "calendar_display_ntp",
+        "geometry": "plane",
+        "description": "A flat plane above the NTP cylinder acting as a date display. Shows the interpreted NTP calendar year as a texture/label. Before 2036 it shows the correct year; after overflow it snaps back to display 1900, making the misinterpretation visually obvious.",
+        "position": [
+          -3,
+          4,
+          0
+        ],
+        "animated_by": "interpreted_ntp_year",
+        "animation_type": "color"
+      },
+      {
+        "name": "calendar_display_unix",
+        "geometry": "plane",
+        "description": "A flat plane above the UNIX 32-bit cylinder displaying the misinterpreted UNIX calendar year. Correctly tracks true year until 2038, then abruptly snaps to show 1901, visually dramatizing the Dec 13, 1901 misinterpretation described by Cerf.",
+        "position": [
+          0,
+          4,
+          0
+        ],
+        "animated_by": "interpreted_unix_year",
+        "animation_type": "color"
+      },
+      {
+        "name": "legacy_device_cloud",
+        "geometry": "sphere",
+        "description": "A large semi-transparent sphere representing the population of unpatched legacy/IoT devices. Its radius scales with the legacy_device_fraction_affected variable, shrinking over time as devices are patched. At the 2036 and 2038 overflow events, the sphere flashes red to indicate vulnerable devices experiencing time errors.",
+        "position": [
+          0,
+          -3,
+          0
+        ],
+        "animated_by": "legacy_device_fraction_affected",
+        "animation_type": "scale"
+      },
+      {
+        "name": "ntp_era_torus",
+        "geometry": "torus",
+        "description": "A torus ring around the NTP cylinder that rotates by 360 degrees each NTP era, acting as an era counter. Before 2036 it is stationary; at the 2036 wrap-around it completes one rotation, symbolizing the NTPv4 era increment. Legacy systems missing this mechanism are shown with a broken/red torus.",
+        "position": [
+          -3,
+          2,
+          0
+        ],
+        "animated_by": "ntp_era",
+        "animation_type": "rotation"
+      }
+    ],
+    "signal_visualizations": [
+      {
+        "name": "overflow_shockwave",
+        "type": "particles",
+        "data_source": "overflow_event_flag",
+        "description": "When overflow_event_flag transitions from 0 to 1 (at the 2036 or 2038 event), a burst of red particles emanates outward from the affected cylinder, visually representing the systemic shock of a time-stamp wrap-around propagating through connected systems."
+      },
+      {
+        "name": "time_error_trail",
+        "type": "trail",
+        "data_source": "time_error_unix_seconds, time_error_ntp_seconds",
+        "description": "A colored trail behind each counter cylinder showing the historical accumulation of time_error (in seconds). Before overflow the trail is thin and green (zero error); after overflow it becomes a wide red band whose thickness encodes the magnitude of the time misinterpretation error (~136 years \u2248 4.3 billion seconds)."
+      },
+      {
+        "name": "counter_value_waveform",
+        "type": "waveform",
+        "data_source": "ntp_seconds_counter, unix_signed_counter, unix_64bit_counter",
+        "description": "A 2D waveform panel rendered as a heads-up display in the 3D scene, showing all three counter values over time. The NTP and UNIX 32-bit lines show the characteristic saw-tooth (wrap-around) and sign-flip discontinuities respectively, while the 64-bit line is monotonically increasing \u2014 mirroring the line plots in fig1 and fig2."
+      },
+      {
+        "name": "patch_progress_heatmap",
+        "type": "heatmap",
+        "data_source": "legacy_device_fraction_affected",
+        "description": "A ground-plane heatmap grid where each cell represents a (patch_rate, initial_legacy_fraction) combination, colored from red (high vulnerability) to blue (low vulnerability). The heatmap updates as the simulated year crosses 2036 and 2038, recoloring to show which device populations are caught unpatched at each overflow event."
+      }
+    ],
+    "camera": {
+      "style": "orbit"
+    },
+    "environment": {
+      "ground": true,
+      "fog": true,
+      "lighting": "dramatic",
+      "description": "Dark background with dramatic side-lighting to emphasize the cylinder fill levels and the abrupt color changes at overflow events. Red emergency lighting pulses when an overflow event occurs, transitioning back to cool blue when the event window passes. The fog adds depth to the device-cloud sphere in the background, reinforcing its scale relative to the counter cylinders in the foreground."
+    },
+    "interactivity": [
+      "scenario_switching",
+      "parameter_display",
+      "play_pause"
+    ]
+  },
+  "raw_analysis": "{\n  \"titles\": [\"It's about Time \u2014 Cerf's Up, Communications of the ACM, April 2026\"],\n  \"domain_summary\": \"This paper discusses integer overflow hazards in legacy timestamp representations, specifically the NTP 32-bit seconds wrap-around (February 6, 2036) and the UNIX 32-bit signed integer epoch overflow (January 19, 2038), and their potential impact on embedded, IoT, and legacy systems.\",\n  \"recommended_backend\": \"event_process\",\n  \"rationale\": \"The core phenomena are discrete overflow events triggered when a counter variable crosses a fixed threshold and wraps around to an erroneous value. An event-process backend is ideal because the dynamics are driven by counter accumulation over time with instantaneous state-change events at overflow boundaries, not continuous differential equations. The simulator must track multiple independent counters, detect wrap-around crossings, and log the resulting time-interpretation errors.\",\n  \"state_variables\": [\n    {\n      \"name\": \"ntp_seconds_counter\",\n      \"description\": \"32-bit unsigned integer counting seconds since Jan 1, 1900, used in NTP timestamps\",\n      \"unit\": \"seconds\",\n      \"init_value\": 0.0,\n      \"range\": [0.0, 4294967295.0]\n    },\n    {\n      \"name\": \"unix_signed_counter\",\n      \"description\": \"32-bit signed integer counting seconds since Jan 1, 1970 (UNIX epoch)\",\n      \"unit\": \"seconds\",\n      \"init_value\": 0.0,\n      \"range\": [-2147483648.0, 2147483647.0]\n    },\n    {\n      \"name\": \"unix_64bit_counter\",\n      \"description\": \"64-bit signed integer counting seconds since Jan 1, 1970, upgraded modern systems\",\n      \"unit\": \"seconds\",\n      \"init_value\": 0.0,\n      \"range\": [0.0, 9.223372036854776e18]\n    },\n    {\n      \"name\": \"ntp_era\",\n      \"description\": \"NTPv4 era number, incremented each time the 32-bit counter wraps around\",\n      \"unit\": \"a.u.\",\n      \"init_value\": 0.0,\n      \"range\": [0.0, 1000.0]\n    },\n    {\n      \"name\": \"interpreted_unix_year\",\n      \"description\": \"Calendar year inferred from the 32-bit signed UNIX counter, goes wrong after overflow\",\n      \"unit\": \"year\",\n      \"init_value\": 1970.0,\n      \"range\": [1901.0, 2106.0]\n    },\n    {\n      \"name\": \"interpreted_ntp_year\",\n      \"description\": \"Calendar year inferred from the 32-bit NTP counter without era correction\",\n      \"unit\": \"year\",\n      \"init_value\": 1900.0,\n      \"range\": [1900.0, 2106.0]\n    },\n    {\n      \"name\": \"overflow_event_flag\",\n      \"description\": \"Binary flag: 1 when an overflow/wrap-around event has occurred in the current timestep\",\n      \"unit\": \"a.u.\",\n      \"init_value\": 0.0,\n      \"range\": [0.0, 1.0]\n    },\n    {\n      \"name\": \"time_error_seconds\",\n      \"description\": \"Absolute difference in seconds between the true current time and the misinterpreted timestamp after overflow\",\n      \"unit\": \"seconds\",\n      \"init_value\": 0.0,\n      \"range\": [0.0, 4294967295.0]\n    },\n    {\n      \"name\": \"legacy_device_fraction_affected\",\n      \"description\": \"Fraction of legacy/IoT devices that have NOT been patched to 64-bit time representation\",\n      \"unit\": \"fraction\",\n      \"init_value\": 1.0,\n      \"range\": [0.0, 1.0]\n    },\n    {\n      \"name\": \"simulation_year\",\n      \"description\": \"Current simulated calendar year in the simulator timeline\",\n      \"unit\": \"year\",\n      \"init_value\": 1970.0,\n      \"range\": [1970.0, 2100.0]\n    }\n  ],\n  \"parameters\": [\n    {\n      \"name\": \"ntp_max_counter\",\n      \"value\": 4294967295.0,\n      \"unit\": \"seconds\",\n      \"source\": \"extracted\",\n      \"description\": \"Maximum value of 32-bit unsigned NTP seconds counter (2^32 - 1)\"\n    },\n    {\n      \"name\": \"ntp_epoch_year\",\n      \"value\": 1900.0,\n      \"unit\": \"year\",\n      \"source\": \"extracted\",\n      \"description\": \"NTP epoch start year: January 1, 1900\"\n    },\n    {\n      \"name\": \"ntp_wraparound_year\",\n      \"value\": 2036.1,\n      \"unit\": \"year\",\n      \"source\": \"extracted\",\n      \"description\": \"Calendar year of NTP 32-bit overflow: February 6, 2036\"\n    },\n    {\n      \"name\": \"ntp_wraparound_seconds_from_epoch\",\n      \"value\": 4294967296.0,\n      \"unit\": \"seconds\",\n      \"source\": \"extracted\",\n      \"description\": \"Seconds from Jan 1 1900 at which NTP 32-bit counter wraps: 136 years 4 days 6 hours 28 minutes 16 seconds\"\n    },\n    {\n      \"name\": \"unix_max_counter\",\n      \"value\": 2147483647.0,\n      \"unit\": \"seconds\",\n      \"source\": \"extracted\",\n      \"description\": \"Maximum value of 32-bit signed UNIX integer (2^31 - 1)\"\n    },\n    {\n      \"name\": \"unix_epoch_year\",\n      \"value\": 1970.0,\n      \"unit\": \"year\",\n      \"source\": \"extracted\",\n      \"description\": \"UNIX epoch start year: January 1, 1970\"\n    },\n    {\n      \"name\": \"unix_wraparound_year\",\n      \"value\": 2038.05,\n      \"unit\": \"year\",\n      \"source\": \"extracted\",\n      \"description\": \"Calendar year of UNIX 32-bit signed overflow: January 19, 2038, 03:14:07 UTC\"\n    },\n    {\n      \"name\": \"unix_wraparound_seconds_from_epoch\",\n      \"value\": 2147483647.0,\n      \"unit\": \"seconds\",\n      \"source\": \"extracted\",\n      \"description\": \"Seconds from Jan 1 1970 at which UNIX 32-bit counter hits max positive value\"\n    },\n    {\n      \"name\": \"unix_post_overflow_interpreted_year\",\n      \"value\": 1901.89,\n      \"unit\": \"year\",\n      \"source\": \"extracted\",\n      \"description\": \"Year that post-overflow UNIX counter is misinterpreted as: Dec 13, 1901 (approx 1901.95)\"\n    },\n    {\n      \"name\": \"ntp_post_overflow_interpreted_year\",\n      \"value\": 1900.0,\n      \"unit\": \"year\",\n      \"source\": \"extracted\",\n      \"description\": \"Year that post-overflow NTP counter is misinterpreted as without era correction: Jan 1, 1900\"\n    },\n    {\n      \"name\": \"unix_64bit_max_years\",\n      \"value\": 292000000000.0,\n      \"unit\": \"years\",\n      \"source\": \"extracted\",\n      \"description\": \"Duration before 64-bit UNIX counter overflows: approximately 292 billion years\"\n    },\n    {\n      \"name\": \"patch_rate_per_year\",\n      \"value\": 0.05,\n      \"unit\": \"fraction/year\",\n      \"source\": \"assumed\",\n      \"description\": \"Annual fraction of legacy/IoT devices upgraded from 32-bit to 64-bit time representation\"\n    },\n    {\n      \"name\": \"initial_legacy_fraction\",\n      \"value\": 0.40,\n      \"unit\": \"fraction\",\n      \"source\": \"assumed\",\n      \"description\": \"Fraction of deployed embedded/IoT systems still using 32-bit time at simulation start (year 2024)\"\n    },\n    {\n      \"name\": \"seconds_per_year\",\n      \"value\": 31557600.0,\n      \"unit\": \"seconds/year\",\n      \"source\": \"extracted\",\n      \"description\": \"Approximate seconds per Julian year (365.25 days)\"\n    },\n    {\n      \"name\": \"simulation_start_year\",\n      \"value\": 2024.0,\n      \"unit\": \"year\",\n      \"source\": \"assumed\",\n      \"description\": \"Start of the simulation timeline\"\n    },\n    {\n      \"name\": \"simulation_end_year\",\n      \"value\": 2050.0,\n      \"unit\": \"year\",\n      \"source\": \"assumed\",\n      \"description\": \"End of the simulation timeline to cover both overflow events with margin\"\n    },\n    {\n      \"name\": \"time_step_days\",\n      \"value\": 30.0,\n      \"unit\": \"days\",\n      \"source\": \"assumed\",\n      \"description\": \"Simulation time step in days (monthly resolution)\"\n    }\n  ],\n  \"scenario_plan\": [\n    {\n      \"label\": \"no_patch_legacy_only\",\n      \"description\": \"All legacy 32-bit systems remain unpatched through 2050. Both NTP and UNIX overflows occur and misinterpretation errors are maximal. Represents worst-case IoT/embedded scenario.\",\n      \"param_overrides\": {\"patch_rate_per_year\": 0.0, \"initial_legacy_fraction\": 1.0}\n    },\n    {\n      \"label\": \"slow_patch_baseline\",\n      \"description\": \"Realistic baseline: 5% annual patch rate starting in 2024, representing gradual enterprise and IoT upgrade cycle. Some devices still vulnerable at both 2036 and 2038 events.\",\n      \"param_overrides\": {\"patch_rate_per_year\": 0.05, \"initial_legacy_fraction\": 0.40}\n    },\n    {\n      \"label\": \"aggressive_patch_campaign\",\n      \"description\": \"Aggressive patching campaign achieves 20% annual remediation rate, representing a coordinated industry response analogous to Y2K remediation efforts.\",\n      \"param_overrides\": {\"patch_rate_per_year\": 0.20, \"initial_legacy_fraction\": 0.40}\n    },\n    {\n      \"label\": \"ntp_era_aware_systems\",\n      \"description\": \"Systems implement NTPv4 era awareness so the NTP 2036 overflow is handled gracefully, but UNIX 32-bit overflow remains unaddressed. Only the 2038 event causes misinterpretation.\",\n      \"param_overrides\": {\"patch_rate_per_year\": 0.05, \"initial_legacy_fraction\": 0.40}\n    },\n    {\n      \"label\": \"high_legacy_slow_patch\",\n      \"description\": \"High legacy device concentration (70%) with very slow patch rate (2%), representing developing-region IoT deployments or long-lifecycle medical/industrial devices.\",\n      \"param_overrides\": {\"patch_rate_per_year\": 0.02, \"initial_legacy_fraction\": 0.70}\n    }\n  ],\n  \"figure_plan\": [\n    {\n      \"id\": \"fig1\",\n      \"type\": \"line\",\n      \"x_axis\": \"simulation_year\",\n      \"y_axis\": \"ntp_seconds_counter\",\n      \"title\": \"NTP 32-bit Counter Accumulation and Wrap-Around (1900\u20132040)\",\n      \"inspired_by\": \"The NTP 32-bit seconds counter wraps around after 136 years on Feb 6, 2036, resetting interpretation to Jan 1, 1900\",\n      \"description\": \"This figure shows the NTP 32-bit unsigned integer counter value accumulating from zero (Jan 1, 1900) as a function of calendar year, reaching its maximum of 4,294,967,295 near February 2036 and then abruptly wrapping back to zero. The y-axis shows the raw counter value (0 to ~4.3 billion) and the x-axis shows calendar year. The reader should look for the sharp discontinuity at 2036 where the counter resets, and contrast this with a second line showing the equivalent 64-bit counter that continues smoothly without any visible wrap-around in this time range.\"\n    },\n    {\n      \"id\": \"fig2\",\n      \"type\": \"line\",\n      \"x_axis\": \"simulation_year\",\n      \"y_axis\": \"unix_signed_counter\",\n      \"title\": \"UNIX 32-bit Signed Counter and Year 2038 Overflow\",\n      \"inspired_by\": \"UNIX 32-bit signed integer hits maximum positive value at 03:14:07 UTC on Jan 19, 2038, then goes negative\",\n      \"description\": \"This figure plots the UNIX 32-bit signed integer counter value from the UNIX epoch (1970) through 2050, showing it rising smoothly to its maximum of 2,147,483,647 in January 2038 and then flipping to large negative values (around -2,147,483,648) due to signed integer overflow. The x-axis is calendar year and the y-axis is the raw counter value. Two series are plotted: the broken 32-bit counter showing the catastrophic sign flip, and the well-behaved 64-bit counter for comparison. The visual impact of the sign reversal should be stark \u2014 a vertical drop from +2.1 billion to -2.1 billion.\"\n    },\n    {\n      \"id\": \"fig3\",\n      \"type\": \"line\",\n      \"x_axis\": \"simulation_year\",\n      \"y_axis\": \"interpreted_unix_year\",\n      \"title\": \"Misinterpreted Calendar Year After UNIX 2038 Overflow\",\n      \"inspired_by\": \"After the 2038 overflow the system will think it is 08:45 pm on Dec 13, 1901\",\n      \"description\": \"This figure translates the raw counter value into the calendar year that a naive 32-bit UNIX system would report, from 1970 through 2050. Before overflow (pre-2038), the interpreted year matches the true year perfectly along the diagonal. After overflow in 2038, the 32-bit system suddenly reports a date in December 1901, creating a ~136-year retrospective error visible as a sudden plunge to the bottom of the y-axis. A horizontal dashed reference line marks 1901.95 (December 13, 1901). The magnitude of the time interpretation error \u2014 approximately 136 years \u2014 is the key takeaway.\"\n    },\n    {\n      \"id\": \"fig4\",\n      \"type\": \"line\",\n      \"x_axis\": \"simulation_year\",\n      \"y_axis\": \"time_error_seconds\",\n      \"title\": \"Time Interpretation Error (seconds) for 32-bit Systems Post-Overflow\",\n      \"inspired_by\": \"Both NTP and UNIX overflows create large systematic time errors in legacy systems\",\n      \"description\": \"This figure shows the absolute time interpretation error in seconds introduced by overflow, plotted against simulation year for both the NTP 2036 event and the UNIX 2038 event. Error is zero before each overflow event and jumps to a large fixed value immediately after (approximately 4.29 billion seconds for NTP reset to 1900, and approximately 4.29 billion seconds for UNIX rollback to 1901). Both overflow events appear as vertical step-function jumps, with a vertical dashed line marking each event year (2036 and 2038). The figure illustrates that without correction, the error persists indefinitely after the overflow.\"\n    },\n    {\n      \"id\": \"fig5\",\n      \"type\": \"line\",\n      \"x_axis\": \"simulation_year\",\n      \"y_axis\": \"legacy_device_fraction_affected\",\n      \"title\": \"Fraction of Unpatched Legacy/IoT Devices Under Different Patch Scenarios\",\n      \"inspired_by\": \"Legacy IoT, medical, and embedded devices not subject to regular updates remain at risk; analogy to Y2K remediation\",\n      \"description\": \"This figure shows the fraction of deployed embedded and IoT devices still running 32-bit time representations (and therefore vulnerable to the 2036/2038 overflow events) as a function of calendar year, for all five scenarios. Each scenario is a separate colored line showing exponential decay of the unpatched fraction at different rates. Vertical dashed lines mark 2036 and 2038 to show what fraction of devices remain vulnerable at each overflow event. The reader can compare how aggressive patching (20%/year) achieves near-zero vulnerability before 2036, while slow or no-patch scenarios still have substantial exposed device populations at both dates.\"\n    },\n    {\n      \"id\": \"fig6\",\n      \"type\": \"scatter\",\n      \"x_axis\": \"simulation_year\",\n      \"y_axis\": \"overflow_event_flag\",\n      \"title\": \"Overflow Event Timeline: NTP 2036 and UNIX 2038\",\n      \"inspired_by\": \"Two distinct overflow events: NTP on Feb 6 2036 and UNIX at 03:14:07 UTC Jan 19 2038\",\n      \"description\": \"This event timeline scatter plot marks the two critical overflow events as vertical markers on a year axis, with the overflow event flag (0 or 1) on the y-axis. NTP overflow at ~2036.1 and UNIX overflow at ~2038.05 are shown as tall vertical bars or large scatter points. Annotations label each event with the exact date, the type of counter that overflows, and the misinterpreted date the system would report. This figure serves as a compact reference card summarizing both critical dates, analogous to the direct statements in Cerf's essay.\"\n    },\n    {\n      \"id\": \"fig7\",\n      \"type\": \"heatmap\",\n      \"x_axis\": \"simulation_year\",\n      \"y_axis\": \"patch_rate_per_year\",\n      \"title\": \"Vulnerability Heatmap: Legacy Device Exposure at 2036 and 2038 Events\",\n      \"inspired_by\": \"Devices not normally subject to regular software updates including IoT, medical, embedded sensors remain at risk\",\n      \"description\": \"This heatmap plots the fraction of devices still unpatched at the time of each overflow event (color intensity) as a function of initial legacy fraction (rows) and annual patch rate (columns). High initial legacy fraction combined with low patch rate (top-left) gives deep red indicating maximum exposure; low initial fraction with high patch rate (bottom-right) gives deep blue indicating near-zero exposure. The figure allows planners to read off at a glance what combination of initial conditions and remediation speed is needed to reduce vulnerability below a target threshold (e.g., 10%) before 2036 and 2038.\"\n    },\n    {\n      \"id\": \"fig8\",\n      \"type\": \"line\",\n      \"x_axis\": \"simulation_year\",\n      \"y_axis\": \"ntp_era\",\n      \"title\": \"NTP Era Number vs Calendar Year (Era-Aware vs Legacy Systems)\",\n      \"inspired_by\": \"NTPv4 uses the concept of eras to deal with the 32-bit wrap-around; older systems may not implement era awareness\",\n      \"description\": \"This figure shows the NTPv4 era counter as a step function of calendar year, incrementing by 1 each time the 32-bit NTP counter wraps around (first wrap at ~2036, second wrap at ~2172, etc.). Era-aware systems correctly track the era and maintain monotonically increasing time. The figure plots two lines: one for era-aware NTPv4 systems (era increments at 2036) and one for legacy systems (era always stays at 0, leading to the 136-year misinterpretation). The step at 2036 is annotated to explain that era-aware systems remain correct while legacy systems diverge.\"\n    }\n  ],\n  \"dataset_schema\": [\n    \"simulation_year\",\n    \"scenario_label\",\n    \"ntp_seconds_counter\",\n    \"unix_signed_counter\",\n    \"unix_64bit_counter\",\n    \"ntp_era\",\n    \"interpreted_ntp_year\",\n    \"interpreted_unix_year\",\n    \"interpreted_unix_year_64bit\",\n    \"overflow_event_flag\",\n    \"ntp_overflow_occurred\",\n    \"unix_overflow_occurred\",\n    \"time_error_ntp_seconds\",\n    \"time_error_unix_seconds\",\n    \"legacy_device_fraction_affected\",\n    \"patch_rate_per_year\",\n    \"initial_legacy_fraction\",\n    \"true_seconds_since_ntp_epoch\",\n    \"true_seconds_since_unix_epoch\"\n  ],\n  \"simulator_logic\": \"\\n# ============================================================\\n# CORE SIMULATOR LOGIC \u2014 Integer Timestamp Overflow Simulator\\n# ============================================================\\n\\n# CONSTANTS (from paper)\\nNTP_EPOCH_YEAR     = 1900.0\\nUNIX_EPOCH_YEAR    = 1970.0\\nSECONDS_PER_YEAR   = 31557600.0       # Julian year = 365.25 days\\nNTP_MAX_U32        = 2**32            # 4294967296 (wraps to 0)\\nUNIX_MAX_S32       = 2**31 - 1        # 2147483647 (max positive signed)\\nUNIX_MIN_S32       = -(2**31)         # -2147483648 (post-overflow value)\\nNTP_WRAPAROUND_YEAR  = 1900.0 + (NTP_MAX_U32 / SECONDS_PER_YEAR)   # \u22482036.09\\nUNIX_WRAPAROUND_YEAR = 1970.0 + (UNIX_MAX_S32 / SECONDS_PER_YEAR)  # \u22482038.04\\n\\n# TIME GRID\\nyears = np.arange(sim_start_year, sim_end_year + time_step_days/365.25,\\n                  time_step_days / 365.25)\\n\\nfor each scenario in scenarios:\\n    patch_rate       = scenario['patch_rate_per_year']\\n    init_legacy_frac = scenario['initial_legacy_fraction']\\n    ntp_era_aware    = scenario.get('ntp_era_aware', False)\\n\\n    ntp_overflow_occurred  = False\\n    unix_overflow_occurred = False\\n    ntp_era_count          = 0\\n\\n    legacy_frac = init_legacy_frac  # start at simulation_start_year = 2024\\n\\n    for year in years:\\n\\n        # \u2500\u2500 TRUE elapsed seconds \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\\n        true_sec_ntp  = (year - NTP_EPOCH_YEAR)  * SECONDS_PER_YEAR\\n        true_sec_unix = (year - UNIX_EPOCH_YEAR) * SECONDS_PER_YEAR\\n\\n        # \u2500\u2500 NTP 32-bit UNSIGNED counter \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\\n        ntp_raw = true_sec_ntp % NTP_MAX_U32        # modular wrap-around\\n        if (not ntp_overflow_occurred) and (year >= NTP_WRAPAROUND_YEAR):\\n            ntp_overflow_occurred = True\\n            if not ntp_era_aware:\\n                ntp_era_count = 0    # legacy: era never increments\\n            else:\\n                ntp_era_count += 1  # NTPv4 era-aware: increment era\\n\\n        # Legacy interpretation (no era correction):\\n        interpreted_ntp_year = NTP_EPOCH_YEAR + (ntp_raw / SECONDS_PER_YEAR)\\n\\n        # \u2500\u2500 UNIX 32-bit SIGNED counter \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\\n        if true_sec_unix <= UNIX_MAX_S32:\\n            unix_s32_raw = int(true_sec_unix)       # normal range\\n            unix_overflow_now = False\\n        else:\\n            # Overflow: signed integer wraps to large negative\\n            # Compute wrapped value: (true_sec_unix - UNIX_MAX_S32 - 1) maps to\\n            # UNIX_MIN_S32, i.e., subtract 2^32 from the true value\\n            unix_s32_raw = int(true_sec_unix) - 2**32\\n            unix_overflow_now = True\\n            if not unix_overflow_occurred:\\n                unix_overflow_occurred = True\\n\\n        # Naive interpretation of signed 32-bit counter:\\n        interpreted_unix_year = UNIX_EPOCH_YEAR + (unix_s32_raw / SECONDS_PER_YEAR)\\n\\n        # 64-bit counter: no overflow possible in simulation window\\n        unix_64bit_raw = int(true_sec_unix)\\n        interpreted_unix_year_64bit = UNIX_EPOCH_YEAR + (unix_64bit_raw / SECONDS_PER_YEAR)\\n\\n        # \u2500\u2500 TIME ERRORS \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\\n        # Error = |true_year - interpreted_year| converted to seconds\\n        time_error_ntp  = abs(year - interpreted_ntp_year)  * SECONDS_PER_YEAR  if ntp_overflow_occurred  else 0.0\\n        time_error_unix = abs(year - interpreted_unix_year) * SECONDS_PER_YEAR  if unix_overflow_occurred else 0.0\\n\\n        # \u2500\u2500 OVERFLOW EVENT FLAG \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\\n        overflow_event_flag = 1 if (unix_overflow_now or\\n                                    (year >= NTP_WRAPAROUND_YEAR and\\n                                     year < NTP_WRAPAROUND_YEAR + time_step_days/365.25))\\n                                else 0\\n\\n        # \u2500\u2500 LEGACY DEVICE FRACTION (exponential decay from patch rate) \u2500\u2500\u2500\u2500\\n        # Only decay from year >= simulation_start_year (2024)\\n        years_since_sim_start = max(0.0, year - simulation_start_year)\\n        legacy_frac = init_legacy_frac * np.exp(-patch_rate * years_since_sim_start)\\n\\n        # \u2500\u2500 RECORD ROW \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\\n        record = {\\n            'simulation_year':             year,\\n            'scenario_label':              scenario['label'],\\n            'ntp_seconds_counter':         ntp_raw,\\n            'unix_signed_counter':         unix_s32_raw,\\n            'unix_64bit_counter':          unix_64bit_raw,\\n            'ntp_era':                     ntp_era_count,\\n            'interpreted_ntp_year':        interpreted_ntp_year,\\n            'interpreted_unix_year':       interpreted_unix_year,\\n            'interpreted_unix_year_64bit': interpreted_unix_year_64bit,\\n            'overflow_event_flag':         overflow_event_flag,\\n            'ntp_overflow_occurred':       int(ntp_overflow_occurred),\\n            'unix_overflow_occurred':      int(unix_overflow_occurred),\\n            'time_error_ntp_seconds':      time_error_ntp,\\n            'time_error_unix_seconds':     time_error_unix,\\n            'legacy_device_fraction_affected': legacy_frac,\\n            'patch_rate_per_year':         patch_rate,\\n            'initial_legacy_fraction':     init_legacy_frac,\\n            'true_seconds_since_ntp_epoch':  true_sec_ntp,\\n            'true_seconds_since_unix_epoch': true_sec_unix\\n        }\\n        append record to output_rows\\n\\n# HEATMAP DATA (fig7): sweep over grid of (init_legacy_frac, patch_rate)\\nfor init_frac in np.linspace(0.1, 1.0, 10):\\n    for p_rate in np.linspace(0.01, 0.25, 10):\\n        frac_at_2036 = init_frac * exp(-p_rate * (2036.09 - 2024))\\n        frac_at_2038 = init_frac * exp(-p_rate * (2038.04 - 2024))\\n        save (init_frac, p_rate, frac_at_2036, frac_at_2038) to heatmap_data\\n\\n# FIGURES: use matplotlib to produce all 8 figures with proper annotations,\\n# dashed vertical lines at 2036.09 and 2038.04, dual-axis where needed,\\n# legend labels matching scenario names, and saved as high-DPI PNGs.\\n\",\n  \"keywords\": [\"integer overflow\", \"timestamp wraparound\", \"Year 2038 problem\", \"NTP epoch\", \"legacy embedded systems\"],\n  \"categories\": [\"Security\", \"IoT\", \"Standards Research Data\", \"Signal Processing\", \"Other\"],\n  \"abstract\": \"This simulator models the integer overflow dynamics of two critical legacy timestamp representations: the NTP 32-bit unsigned second counter (wrap-around February 6, 2036) and the UNIX 32-bit signed epoch counter (overflow January 19, 2038, 03:14:07 UTC), as described in Vinton Cerf's 2026 essay. It reproduces the time-interpretation errors that arise when these counters exceed their maximum values and quantifies the fraction of unpatched legacy, IoT, and embedded devices exposed at each event under a range of patch-rate scenarios. The simulator generates synthetic counter trajectories, misinterpretation errors in both seconds and calendar years, and device vulnerability curves that mirror the qualitative arguments and numerical details presented in the paper. Researchers, engineers, and policymakers can use the output CSV data and figures to visualize the urgency of remediation, compare patching strategies, and communicate the risk to non-technical stakeholders.\",\n  \"value_proposition\": {\n    \"target_audiences\": [\n      \"Embedded systems and IoT engineers responsible for long-lifecycle device firmware\",\n      \"Security researchers and policy analysts assessing Y2K-analogous infrastructure risks\",\n      \"Computer science educators teaching integer representation, overflow, and systems reliability\"\n    ],\n    \"use_cases\": [\n      \"An IoT platform team can use the vulnerability heatmap figure (fig7) to determine the minimum annual patch deployment rate needed to reduce exposed device fraction below 5% before the 2036 NTP overflow, informing their release schedule and end-of-life planning.\",\n      \"A university instructor can use the misinterpreted-year plots (fig3) and counter wrap-around figures (fig1, fig2) as interactive visual demonstrations of signed vs. unsigned integer overflow without requiring students to run real NTP or UNIX clocks.\",\n      \"A standards body or industry consortium can use the scenario comparison curves (fig5) to argue for a coordinated patching campaign analogous to Y2K, backed by quantitative projections of residual device exposure under different industry response rates.\"\n    ],\n    \"summary\": \"This simulator bundle makes the abstract numerical arguments in Cerf's essay concrete and actionable. While the original essay describes the two overflow events in prose, the simulator produces time-series plots, event markers, and device-vulnerability heatmaps that allow engineers and policymakers to see exactly how large the misinterpretation errors are (on the order of 136 years, or ~4.3 billion seconds), when they occur, and how many devices remain at risk under different remediation strategies. The synthetic CSV data can be ingested into dashboards or compliance reporting tools, and the publication-quality figures are suitable for use in presentations, standards documents, and educational materials. Unlike reading the paper alone, the simulator allows users to interactively test their own patch-rate assumptions and initial legacy-device concentrations, providing a quantitative decision-support tool that the essay itself does not offer.\"\n  },\n  \"data_format\": [\"CSV\", \"PNG\", \"JSON\"],\n  \"scene_3d_plan\": {\n    \"physical_objects\": [\n      {\n        \"name\": \"ntp_counter_cylinder\",\n        \"geometry\": \"cylinder\",\n        \"description\": \"Represents the NTP 32-bit unsigned counter as a filling cylinder. Height and fill level correspond to the current counter value (0 to 2^32-1). When the cylinder overflows at 2036, the fill resets to the bottom with a flash effect, symbolizing the wrap-around back to 1900.\",\n        \"position\": [-3, 0, 0],\n        \"animated_by\": \"ntp_seconds_counter\",\n        \"animation_type\": \"scale\"\n      },\n      {\n        \"name\": \"unix_counter_cylinder\",\n        \"geometry\": \"cylinder\",\n        \"description\": \"Represents the UNIX 32-bit signed counter as a filling cylinder that changes color from green (positive values, 1970\u20132038) to red (negative values, post-overflow). At the 2038 overflow event, the cylinder visibly inverts, indicating the sign flip.\",\n        \"position\": [0, 0, 0],\n        \"animated_by\": \"unix_signed_counter\",\n        \"animation_type\": \"color\"\n      },\n      {\n        \"name\": \"unix_64bit_counter_cylinder\",\n        \"geometry\": \"cylinder\",\n        \"description\": \"Represents the modern 64-bit UNIX counter as a tall steady cylinder that remains blue and continues filling smoothly through 2036 and 2038 without any disruption, providing visual contrast to the 32-bit failures.\",\n        \"position\": [3, 0, 0],\n        \"animated_by\": \"unix_64bit_counter\",\n        \"animation_type\": \"scale\"\n      },\n      {\n        \"name\": \"calendar_display_ntp\",\n        \"geometry\": \"plane\",\n        \"description\": \"A flat plane above the NTP cylinder acting as a date display. Shows the interpreted NTP calendar year as a texture/label. Before 2036 it shows the correct year; after overflow it snaps back to display 1900, making the misinterpretation visually obvious.\",\n        \"position\": [-3, 4, 0],\n        \"animated_by\": \"interpreted_ntp_year\",\n        \"animation_type\": \"color\"\n      },\n      {\n        \"name\": \"calendar_display_unix\",\n        \"geometry\": \"plane\",\n        \"description\": \"A flat plane above the UNIX 32-bit cylinder displaying the misinterpreted UNIX calendar year. Correctly tracks true year until 2038, then abruptly snaps to show 1901, visually dramatizing the Dec 13, 1901 misinterpretation described by Cerf.\",\n        \"position\": [0, 4, 0],\n        \"animated_by\": \"interpreted_unix_year\",\n        \"animation_type\": \"color\"\n      },\n      {\n        \"name\": \"legacy_device_cloud\",\n        \"geometry\": \"sphere\",\n        \"description\": \"A large semi-transparent sphere representing the population of unpatched legacy/IoT devices. Its radius scales with the legacy_device_fraction_affected variable, shrinking over time as devices are patched. At the 2036 and 2038 overflow events, the sphere flashes red to indicate vulnerable devices experiencing time errors.\",\n        \"position\": [0, -3, 0],\n        \"animated_by\": \"legacy_device_fraction_affected\",\n        \"animation_type\": \"scale\"\n      },\n      {\n        \"name\": \"ntp_era_torus\",\n        \"geometry\": \"torus\",\n        \"description\": \"A torus ring around the NTP cylinder that rotates by 360 degrees each NTP era, acting as an era counter. Before 2036 it is stationary; at the 2036 wrap-around it completes one rotation, symbolizing the NTPv4 era increment. Legacy systems missing this mechanism are shown with a broken/red torus.\",\n        \"position\": [-3, 2, 0],\n        \"animated_by\": \"ntp_era\",\n        \"animation_type\": \"rotation\"\n      }\n    ],\n    \"signal_visualizations\": [\n      {\n        \"name\": \"overflow_shockwave\",\n        \"type\": \"particles\",\n        \"data_source\": \"overflow_event_flag\",\n        \"description\": \"When overflow_event_flag transitions from 0 to 1 (at the 2036 or 2038 event), a burst of red particles emanates outward from the affected cylinder, visually representing the systemic shock of a time-stamp wrap-around propagating through connected systems.\"\n      },\n      {\n        \"name\": \"time_error_trail\",\n        \"type\": \"trail\",\n        \"data_source\": \"time_error_unix_seconds, time_error_ntp_seconds\",\n        \"description\": \"A colored trail behind each counter cylinder showing the historical accumulation of time_error (in seconds). Before overflow the trail is thin and green (zero error); after overflow it becomes a wide red band whose thickness encodes the magnitude of the time misinterpretation error (~136 years \u2248 4.3 billion seconds).\"\n      },\n      {\n        \"name\": \"counter_value_waveform\",\n        \"type\": \"waveform\",\n        \"data_source\": \"ntp_seconds_counter, unix_signed_counter, unix_64bit_counter\",\n        \"description\": \"A 2D waveform panel rendered as a heads-up display in the 3D scene, showing all three counter values over time. The NTP and UNIX 32-bit lines show the characteristic saw-tooth (wrap-around) and sign-flip discontinuities respectively, while the 64-bit line is monotonically increasing \u2014 mirroring the line plots in fig1 and fig2.\"\n      },\n      {\n        \"name\": \"patch_progress_heatmap\",\n        \"type\": \"heatmap\",\n        \"data_source\": \"legacy_device_fraction_affected\",\n        \"description\": \"A ground-plane heatmap grid where each cell represents a (patch_rate, initial_legacy_fraction) combination, colored from red (high vulnerability) to blue (low vulnerability). The heatmap updates as the simulated year crosses 2036 and 2038, recoloring to show which device populations are caught unpatched at each overflow event.\"\n      }\n    ],\n    \"camera\": {\"style\": \"orbit\"},\n    \"environment\": {\n      \"ground\": true,\n      \"fog\": true,\n      \"lighting\": \"dramatic\",\n      \"description\": \"Dark background with dramatic side-lighting to emphasize the cylinder fill levels and the abrupt color changes at overflow events. Red emergency lighting pulses when an overflow event occurs, transitioning back to cool blue when the event window passes. The fog adds depth to the device-cloud sphere in the background, reinforcing its scale relative to the counter cylinders in the foreground.\"\n    },\n    \"interactivity\": [\"scenario_switching\", \"parameter_display\", \"play_pause\"]\n  }\n}",
+  "_provider": "claude",
+  "_dbbun": {
+    "tool": "paper_to_simulator_builder",
+    "version": "3.4.0",
+    "generated_by": "DBbun LLC  |  dbbun.com  |  CAGE 16VU3  |  UEI QY39Y38E6WG8",
+    "run_id": "bf578196-7ad2-4dd3-8406-fde3493c4db8",
+    "timestamp_utc": "2026-04-14T00:21:32.919071Z",
+    "copyright": "\u00a9 2024-2025 DBbun LLC. All rights reserved."
+  }
+}
